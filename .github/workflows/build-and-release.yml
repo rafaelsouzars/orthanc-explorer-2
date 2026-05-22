@@ -39,9 +39,9 @@ jobs:
     runs-on: "ubuntu-latest"
     needs: [pre-build]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@v6
       with:
         node-version: '19'
 
@@ -62,7 +62,7 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     - name: upload web-app-dist to artifacts
-      uses: actions/upload-artifact@v4.4.3
+      uses: actions/upload-artifact@v7
       with:
         name: web-app-dist
         path: WebApplication/dist/
@@ -98,38 +98,36 @@ jobs:
             artifact: "libOrthancExplorer2.dylib",
             artifactPath: "libOrthancExplorer2.dylib",
             triplet: x64-osx,
-            os: macos-13,
+            os: macos-latest,
             extraCMakeFlags: "-DUSE_LEGACY_BOOST=ON"
           }
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: show gitref / tags
       run: echo ${{ github.ref }} ${{needs.pre-build.outputs.current_branch_tag}} ${{needs.pre-build.outputs.is_tag}}
 
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v8
       id: download
       with:
         name: web-app-dist
         path: WebApplication/dist
 
-    - name: install Mercurial on MacOS
-      if: runner.os == 'MacOS'
+    - name: install Mercurial on MacOS and Windows
+      if: runner.os == 'MacOS' || runner.os == 'Windows'
       run: pip3 install mercurial --break-system-packages
 
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build  ${{matrix.config.extraCMakeFlags}} -DPLUGIN_VERSION="${{needs.pre-build.outputs.current_branch_tag}}" -DSTATIC_BUILD=ON -DALLOW_DOWNLOADS=ON -DUSE_SYSTEM_ORTHANC_SDK=OFF -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DWEBAPP_DIST_SOURCE=WEB
-      env: 
-        MAKEFLAG: -j4
 
     - name: Build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
       env: 
-        MAKEFLAG: -j4
+        CMAKE_BUILD_PARALLEL_LEVEL: 8
 
     - name: Upload
-      uses: actions/upload-artifact@v4.4.3
+      uses: actions/upload-artifact@v7
       with:
         path: ${{github.workspace}}/build/${{matrix.config.artifactPath}}
         name: ${{matrix.config.artifact}}
@@ -138,9 +136,9 @@ jobs:
     - name: Setup tmate session
       if: ${{ failure() }}
       uses: mxschmitt/action-tmate@v3
+      timeout-minutes: 20
       with:
         limit-access-to-actor: true
-        timeout-minutes: 20
 
 
   check-translations:
@@ -148,7 +146,7 @@ jobs:
     runs-on: "ubuntu-latest"
     needs: [pre-build]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - run: python3 ./scripts/check-translations.py
 
@@ -175,7 +173,7 @@ jobs:
         echo "${{ steps.create_release.outputs.upload_url }}" > ./upload_url
 
     - name: Upload release url artifact
-      uses: actions/upload-artifact@v4.4.3
+      uses: actions/upload-artifact@v7
       with:
         path: ./upload_url
         name: upload_url
@@ -212,13 +210,13 @@ jobs:
 
     steps:
     - name: Download artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: ${{ matrix.config.artifact }}
         path: ./
 
     - name: Download URL
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: upload_url
         path: ./

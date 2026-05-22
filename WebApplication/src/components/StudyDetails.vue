@@ -4,6 +4,7 @@ import SeriesList from "./SeriesList.vue";
 import { mapState, mapGetters } from "vuex"
 import ResourceButtonGroup from "./ResourceButtonGroup.vue";
 import ResourceDetailText from "./ResourceDetailText.vue";
+import AuditLogs from "./AuditLogs.vue";
 import api from "../orthancApi";
 import LabelsEditor from "./LabelsEditor.vue";
 import SourceType from '../helpers/source-type';
@@ -19,6 +20,7 @@ export default {
             studySeries: [],
             hasLoadedSamePatientsStudiesCount: false,
             allLabelsLocalCopy: new Set(),
+            studyMainDicomTagsLocalCopy: {},
             remoteStudyFoundLocally: false,
             labelsComponentKey: 0  // to force refresh of the labels editor when allLabels is modified
         };
@@ -28,12 +30,29 @@ export default {
         this.messageBus.on('added-series-to-study-' + this.studyId, this.reloadSeriesList);
     },
     async mounted() {
-        this.samePatientStudiesCount = (await api.getSamePatientStudies(this.patientMainDicomTags, this.uiOptions.ShowSamePatientStudiesFilter)).length;
-        this.reloadSeriesList();
+        this.samePatientStudiesCount = (await api.getSamePatientStudies(this.patientMainDicomTags, this.uiOptions.ShowSamePatientStudiesFilter, false)).length;
+        this.studyMainDicomTagsLocalCopy = { ...this.studyMainDicomTags }; // make a copy to be able to modify it
+        await this.reloadSeriesList();
         this.hasLoadedSamePatientsStudiesCount = true;
 
         if (this.studiesSourceType == SourceType.REMOTE_DICOM || this.studiesSourceType == SourceType.REMOTE_DICOM_WEB) {
-            this.remoteStudyFoundLocally = (await api.studyExists(this.studyMainDicomTags.StudyInstanceUID));
+            this.remoteStudyFoundLocally = (await api.studyExists(this.studyMainDicomTagsLocalCopy.StudyInstanceUID));
+        }
+
+        if (this.studiesSourceType == SourceType.LOCAL_ORTHANC) {
+            // if VisitComments is too long, it is actually not stored in DB -> in this case, get it from an instance
+            for (const t of this.uiOptions.StudyMainTags) {
+                if (!(t in this.studyMainDicomTagsLocalCopy) && ['VisitComments'].includes(t)) {
+                    console.info("Possibly missing tag from DB: " + t + ", will get it from an instance");
+                    let instances = await api.getStudyInstancesIds(this.studyId);
+                    let instanceTags = await api.getInstanceTags(instances[0]);
+                    for (const [k, v] of Object.entries(instanceTags)) {
+                        if (v['Name'] == t) {
+                            this.studyMainDicomTagsLocalCopy[t] = v['Value'];
+                        }
+                    }
+                }
+            }
         }
     },
     computed: {
@@ -70,7 +89,7 @@ export default {
             return this.studiesSourceType == SourceType.REMOTE_DICOM || this.studiesSourceType == SourceType.REMOTE_DICOM_WEB;
         },
         sameLocalStudyLink() {
-            return "/filtered-studies?StudyInstanceUID=" + this.studyMainDicomTags.StudyInstanceUID;
+            return "/filtered-studies?StudyInstanceUID=" + this.studyMainDicomTagsLocalCopy.StudyInstanceUID;
         }
     },
     watch: {
@@ -78,7 +97,7 @@ export default {
             this.labelsComponentKey++; // force refresh
         }
     },
-    components: { SeriesItem, SeriesList, ResourceButtonGroup, ResourceDetailText, LabelsEditor },
+    components: { SeriesItem, SeriesList, ResourceButtonGroup, ResourceDetailText, LabelsEditor, AuditLogs },
     methods: {
         onDeletedStudy() {
             this.$emit("deletedStudy", this.studyId);
@@ -88,31 +107,39 @@ export default {
                 this.studySeries = (await api.getStudySeries(this.studyId));
             } else if (this.studiesSourceType == SourceType.REMOTE_DICOM) {
                 let remoteSeries = (await api.remoteDicomFind("Series", this.studiesRemoteSource, {
-                    "StudyInstanceUID": this.studyMainDicomTags.StudyInstanceUID,
+                    "StudyInstanceUID": this.studyMainDicomTagsLocalCopy.StudyInstanceUID,
                     "PatientID": this.patientMainDicomTags.PatientID,
                     "NumberOfSeriesRelatedInstances": "",
                     "Modality": "",
                     "SeriesDescription": "",
                     "SeriesNumber": ""
-                    },
+                },
                     false /* isUnique */));
-                this.studySeries = remoteSeries.map(s => { return {
-                    "ID": s["SeriesInstanceUID"],
-                    "MainDicomTags": s
-                }})
+                this.studySeries = remoteSeries.map(s => {
+                    return {
+                        "ID": s["SeriesInstanceUID"],
+                        "MainDicomTags": s
+                    }
+                })
             } else if (this.studiesSourceType == SourceType.REMOTE_DICOM_WEB) {
                 let remoteSeries = (await api.qidoRs("Series", this.studiesRemoteSource, {
-                    "StudyInstanceUID": this.studyMainDicomTags.StudyInstanceUID,
+                    "StudyInstanceUID": this.studyMainDicomTagsLocalCopy.StudyInstanceUID,
                     "NumberOfSeriesRelatedInstances": "",
                     "Modality": "",
                     "SeriesDescription": "",
-                    "SeriesNumber": ""
-                    },
+                    "SeriesNumber": "",
+                    "SeriesDate": "",
+                    "SeriesTime": "",
+                    "BodyPartExamined": "",
+                    "ProtocolName": ""
+                },
                     false /* isUnique */));
-                this.studySeries = remoteSeries.map(s => { return {
-                    "ID": s["SeriesInstanceUID"],
-                    "MainDicomTags": s
-                }})
+                this.studySeries = remoteSeries.map(s => {
+                    return {
+                        "ID": s["SeriesInstanceUID"],
+                        "MainDicomTags": s
+                    }
+                })
             }
         },
     }
@@ -126,45 +153,49 @@ export default {
         <tbody>
             <tr v-if="showLabels && uiOptions.EnableEditLabels">
                 <td colspan="100%">
-                    <LabelsEditor :labels="labels" :title="'labels.study_details_title'" :key="labelsComponentKey" :studyId="studyId" ></LabelsEditor>
+                    <LabelsEditor :labels="labels" :title="'labels.study_details_title'" :key="labelsComponentKey"
+                        :studyId="studyId"></LabelsEditor>
                 </td>
             </tr>
             <tr v-if="showLabels && !uiOptions.EnableEditLabels">
                 <td colspan="100%">
-                    {{  $t('labels.study_details_title') }}
+                    {{ $t('labels.study_details_title') }}
                     <span v-for="label in labels" :key="label" class="label badge">{{ label }}</span>
                 </td>
             </tr>
             <tr>
                 <td width="40%" class="cut-text">
                     <ul>
-                        <ResourceDetailText v-for="tag in uiOptions.StudyMainTags" :key="tag" :tags="studyMainDicomTags"
-                            :tag="tag" :showIfEmpty="true"></ResourceDetailText>
+                        <ResourceDetailText v-for="tag in uiOptions.StudyMainTags" :key="tag"
+                            :tags="studyMainDicomTagsLocalCopy" :tag="tag" :showIfEmpty="true"></ResourceDetailText>
                     </ul>
                 </td>
                 <td width="40%" class="cut-text">
                     <ul>
-                        <ResourceDetailText v-for="tag in uiOptions.PatientMainTags" :key="tag" :tags="patientMainDicomTags"
-                            :tag="tag" :showIfEmpty="true"></ResourceDetailText>
+                        <ResourceDetailText v-for="tag in uiOptions.PatientMainTags" :key="tag"
+                            :tags="patientMainDicomTags" :tag="tag" :showIfEmpty="true"></ResourceDetailText>
                     </ul>
-                    <p v-if="isLocalOrthanc && hasLoadedSamePatientsStudiesCount && samePatientStudiesCount > 1" class="info-text">
+                    <p v-if="isLocalOrthanc && hasLoadedSamePatientsStudiesCount && samePatientStudiesCount > 1"
+                        class="info-text">
                         {{ $t('this_patient_has_other_studies', { count: samePatientStudiesCount }) }}.
-                        <router-link :to='samePatientStudiesLink' >
+                        <router-link :to='samePatientStudiesLink'>
                             {{ $t('this_patient_has_other_studies_show') }}
                         </router-link>
                     </p>
-                    <p v-if="isLocalOrthanc && hasLoadedSamePatientsStudiesCount && samePatientStudiesCount == 1" class="info-text">
+                    <p v-if="isLocalOrthanc && hasLoadedSamePatientsStudiesCount && samePatientStudiesCount == 1"
+                        class="info-text">
                         {{ $t('this_patient_has_no_other_studies') }}
                     </p>
-                    <p v-if="isRemoteSource && hasLoadedSamePatientsStudiesCount && samePatientStudiesCount > 1" class="info-text">
+                    <p v-if="isRemoteSource && hasLoadedSamePatientsStudiesCount && samePatientStudiesCount > 1"
+                        class="info-text">
                         {{ $t('this_remote_patient_has_local_studies', { count: samePatientStudiesCount }) }}
-                        <router-link :to='samePatientStudiesLink' >
+                        <router-link :to='samePatientStudiesLink'>
                             {{ $t('this_patient_has_other_studies_show') }}
                         </router-link>
                     </p>
                     <p v-if="isRemoteSource && remoteStudyFoundLocally" class="info-text">
                         {{ $t('this_study_is_already_stored_locally') }}
-                        <router-link :to='sameLocalStudyLink' >
+                        <router-link :to='sameLocalStudyLink'>
                             {{ $t('this_study_is_already_stored_locally_show') }}
                         </router-link>
                     </p>
@@ -172,15 +203,24 @@ export default {
                 </td>
                 <td width="20%" class="study-button-group">
                     <ResourceButtonGroup :resourceOrthancId="this.studyId" :resourceLevel="'study'"
-                        :patientMainDicomTags="this.patientMainDicomTags" :studyMainDicomTags="this.studyMainDicomTags"
-                        :resourceDicomUid="this.studyMainDicomTags.StudyInstanceUID" :studySeries="this.studySeries" @deletedResource="onDeletedStudy">
+                        :patientMainDicomTags="this.patientMainDicomTags"
+                        :studyMainDicomTags="this.studyMainDicomTagsLocalCopy"
+                        :resourceDicomUid="this.studyMainDicomTagsLocalCopy.StudyInstanceUID"
+                        :studySeries="this.studySeries" @deletedResource="onDeletedStudy">
                     </ResourceButtonGroup>
+                </td>
+            </tr>
+            <tr v-if="uiOptions.EnableAuditLogs">
+                <td colspan="100">
+                    <router-link class="router-link" :to="'/audit-logs?resource-id=' + this.studyId">{{
+                        $t('audit_logs.expand_logs') }}</router-link>
                 </td>
             </tr>
             <tr>
                 <td colspan="100">
-                    <SeriesList :studyId="this.studyId" :studyMainDicomTags="this.studyMainDicomTags"
-                        :patientMainDicomTags="this.patientMainDicomTags" :studySeries="this.studySeries" @deletedStudy="onDeletedStudy"></SeriesList>
+                    <SeriesList :studyId="this.studyId" :studyMainDicomTags="this.studyMainDicomTagsLocalCopy"
+                        :patientMainDicomTags="this.patientMainDicomTags" :studySeries="this.studySeries"
+                        @deletedStudy="onDeletedStudy"></SeriesList>
                 </td>
             </tr>
         </tbody>

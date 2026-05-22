@@ -1,7 +1,7 @@
 <script>
 
 import UploadHandler from "./UploadHandler.vue"
-import JobsList from "./JobsList.vue";
+import JobsSideList from "./JobsSideList.vue";
 import LanguagePicker from "./LanguagePicker.vue";
 import { mapState, mapGetters } from "vuex"
 import { orthancApiUrl, oe2ApiUrl } from "../globalConfigurations";
@@ -15,9 +15,9 @@ export default {
     data() {
         return {
             // selectedModality: null,
-            selectedLabel: null,
             modalitiesEchoStatus: {},
             labelsStudyCount: {},
+            noLabelsStudyCount: null
         };
     },
     computed: {
@@ -30,17 +30,20 @@ export default {
             studiesIds: state => state.studies.studiesIds,
             statistics: state => state.studies.statistics,
             labelFilters: state => state.studies.labelFilters,
+            labelsContraint: state => state.studies.labelsContraint,
             jobs: state => state.jobs.jobsIds,
             allLabels: state => state.labels.allLabels,
+            canShowStudiesWithoutLabels: state => state.labels.canShowStudiesWithoutLabels,
             hasCustomLogo: state => state.configuration.hasCustomLogo,
             configuration: state => state.configuration,
             studiesSourceType: state => state.studies.sourceType,
             studiesRemoteSource: state => state.studies.remoteSource,
-            hasExtendedFind: state => state.configuration.hasExtendedFind
+            hasExtendedFind: state => state.configuration.hasExtendedFind,
+            installedPlugins: state => state.configuration.installedPlugins
         }),
         customLogoUrl() {
             if (this.hasCustomLogo && this.configuration.customLogoUrl) {
-                return this.customLogoUrl;
+                return this.configuration.customLogoUrl;
             } else {
                 return "./customizable/custom-logo";
             }
@@ -53,6 +56,12 @@ export default {
         },
         hasAccessToSettings() {
             return this.uiOptions.EnableSettings;
+        },
+        hasAccessToWorklists() {
+            return "orthanc-worklists" in this.installedPlugins && this.installedPlugins["orthanc-worklists"].Enabled && this.uiOptions.EnableWorklists;
+        },
+        hasAccessToAllJobs() {
+            return this.uiOptions.EnableJobsList;
         },
         hasAccessToSettingsLabelsAndPermissions() {
             return this.hasAccessToSettings && this.uiOptions.EnablePermissionsEdition;
@@ -91,16 +100,16 @@ export default {
             return this.modalitiesEchoStatus[modality] == true;
         },
         async selectLabel(label) {
-            this.selectedLabel = label;
-            if (this.$router.name == 'local-studies-list') {
-                await this.$store.dispatch('studies/updateSource', { 'source-type': SourceType.LOCAL_ORTHANC, 'remote-source': null });
-                this.messageBus.emit('filter-label-changed', label);
-            } else {
-                this.$router.push({name: 'local-studies-list', query: {'labels': label}});
-            }
+            this.$router.push({ name: 'local-studies-list', query: { 'labels': label } });
+        },
+        async selectWithoutLabels() {
+            this.$router.push({ name: 'local-studies-list', query: { 'without-labels': true } });
         },
         isSelectedLabel(label) {
-            return this.labelFilters.includes(label);
+            return this.labelsContraint != 'None' && this.labelFilters.includes(label);
+        },
+        isSelectedWithoutLabels() {
+            return this.labelsContraint == 'None' && this.labelFilters.length == 0;
         },
         logout(event) {
             event.preventDefault();
@@ -134,6 +143,9 @@ export default {
                             this.labelsStudyCount[k] = await api.getLabelStudyCount(k);
                         }
                     }
+                    if (this.canShowStudiesWithoutLabels) {
+                        this.noLabelsStudyCount = await api.getLabelStudyCount(null);
+                    }
                 }
             }
         }
@@ -158,22 +170,22 @@ export default {
             }
         });
     },
-    components: { UploadHandler, JobsList, LanguagePicker },
+    components: { UploadHandler, JobsSideList, LanguagePicker },
 }
 </script>
 <template>
     <div class="nav-side-menu">
         <div class="nav-side-content">
             <div v-if="!hasCustomLogo">
-                <img class="orthanc-logo" src="../assets/images/orthanc.png"/>
+                <img class="orthanc-logo" src="../assets/images/orthanc.png" />
             </div>
             <div v-if="hasCustomLogo">
                 <img class="custom-logo" :src="customLogoUrl" />
             </div>
             <div v-if="hasCustomLogo">
                 <p class="powered-by-orthanc">
-                powered by
-                <img src="../assets/images/orthanc.png" />
+                    powered by
+                    <img src="../assets/images/orthanc.png" />
                 </p>
             </div>
             <div v-if="uiOptions.ShowOrthancName" class="orthanc-name">
@@ -185,12 +197,17 @@ export default {
                         <router-link class="router-link" to="/">
                             <i class="fa fa-x-ray fa-lg menu-icon"></i>{{ $t('local_studies') }}
                             <span class="study-count ms-auto">{{ displayedStudyCount }} / {{ statistics.CountStudies
-                            }}</span>
+                                }}</span>
                         </router-link>
                     </li>
                     <ul v-if="allLabels.length > 0" class="sub-menu" id="labels-list">
-                        <li v-for="label in allLabels" :key="label"
-                        v-bind:class="{ 'active': isSelectedLabel(label) }" @click="selectLabel(label)">
+                        <li v-if="canShowStudiesWithoutLabels" key="without-label"
+                            v-bind:class="{ 'active': isSelectedWithoutLabels() }" @click="selectWithoutLabels()">
+                            {{ $t('labels.studies_without_labels') }}
+                            <span class="study-count ms-auto">{{ noLabelsStudyCount }}</span>
+                        </li>
+                        <li v-for="label in allLabels" :key="label" v-bind:class="{ 'active': isSelectedLabel(label) }"
+                            @click="selectLabel(label)">
                             <i class="fa fa-tag label-icon"></i>
                             {{ label }}
                             <span class="study-count ms-auto">{{ labelsStudyCount[label] }}</span>
@@ -203,7 +220,7 @@ export default {
                         <span class="ms-auto"></span>
                     </li>
                     <div v-if="uiOptions.EnableUpload" class="collapse" id="upload-handler">
-                        <UploadHandler />
+                        <UploadHandler :showStudyDetails="true" :singleUse="false" />
                     </div>
 
                     <li v-if="hasQueryableDicomModalities" class="d-flex align-items-center" data-bs-toggle="collapse"
@@ -223,8 +240,8 @@ export default {
                             <span v-else-if="this.isEchoSuccess(modality)" class="ms-auto"><i
                                     class="bi bi-check2 text-success echo-status" data-bs-toggle="tooltip"
                                     title="C-Echo succeeded"></i></span>
-                            <span v-else class="ms-auto"><i class="bi bi-x-lg text-danger echo-status" data-bs-toggle="tooltip"
-                                    title="C-Echo failed"></i></span>
+                            <span v-else class="ms-auto"><i class="bi bi-x-lg text-danger echo-status"
+                                    data-bs-toggle="tooltip" title="C-Echo failed"></i></span>
                         </li>
                     </ul>
 
@@ -234,14 +251,24 @@ export default {
                         <span class="arrow ms-auto"></span>
                     </li>
                     <ul class="sub-menu collapse" id="dicomweb-servers-list">
-                        <li v-for="server in queryableDicomWebServers" :key="server" v-bind:class="{ 'active': this.isSelectedDicomWebServer(server) }">
+                        <li v-for="server in queryableDicomWebServers" :key="server"
+                            v-bind:class="{ 'active': this.isSelectedDicomWebServer(server) }">
                             <router-link class="router-link"
                                 :to="{ path: '/filtered-studies', query: { 'source-type': 'dicom-web', 'remote-source': server } }">
                                 {{ server }}
                             </router-link>
                         </li>
                     </ul>
-
+                    <li v-if="hasAccessToWorklists" class="d-flex align-items-center fix-router-link">
+                        <router-link class="router-link" to="/worklists">
+                            <i class="fa fa-list fa-lg menu-icon"></i>{{ $t('worklists.side_bar_title') }}
+                        </router-link>
+                    </li>
+                    <li v-if="hasAccessToAllJobs" class="d-flex align-items-center fix-router-link">
+                        <router-link class="router-link" to="/jobs">
+                            <i class="fa fa-bars-progress fa-lg menu-icon"></i>{{ $t('jobs.side_bar_title') }}
+                        </router-link>
+                    </li>
                     <li v-if="hasAccessToSettings" class="d-flex align-items-center" data-bs-toggle="collapse"
                         data-bs-target="#settings-list">
                         <i class="fa fa-cogs fa-lg menu-icon"></i>{{ $t('settings.title') }}
@@ -249,15 +276,24 @@ export default {
                     </li>
                     <ul class="sub-menu collapse" id="settings-list">
                         <li>
-                            <router-link class="router-link" to="/settings">{{ $t('settings.system_info') }}</router-link>
+                            <router-link class="router-link" to="/settings">{{ $t('settings.system_info')
+                                }}</router-link>
                         </li>
                         <li v-if="hasAccessToSettingsLabelsAndPermissions">
-                            <router-link class="router-link" to="/settings-labels">{{ $t('settings.available_labels_title') }}</router-link>
+                            <router-link class="router-link" to="/settings-labels">{{
+                                $t('settings.available_labels_title') }}</router-link>
                         </li>
                         <li v-if="hasAccessToSettingsLabelsAndPermissions">
-                            <router-link class="router-link" to="/settings-permissions">{{ $t('settings.permissions') }}</router-link>
+                            <router-link class="router-link" to="/settings-permissions">{{ $t('settings.permissions')
+                                }}</router-link>
                         </li>
                     </ul>
+
+                    <li v-if="uiOptions.EnableAuditLogs" class="d-flex align-items-center fix-router-link">
+                        <router-link class="router-link" to="/audit-logs">
+                            <i class="fa fa-solid fa-table-list menu-icon"></i>{{ $t('audit_logs.side_bar_title') }}
+                        </router-link>
+                    </li>
 
                     <li v-if="uiOptions.EnableLinkToLegacyUi" class="d-flex align-items-center fix-router-link">
                         <a v-bind:href="this.orthancApiUrl + 'app/explorer.html'">
@@ -266,7 +302,8 @@ export default {
                     </li>
                     <li v-if="hasLogout" class="d-flex align-items-center" data-bs-toggle="collapse"
                         data-bs-target="#profile-list">
-                        <i class="fa fa-user fa-lg menu-icon"></i><span v-if="hasUserProfile">{{ userProfile.name }}</span><span v-if="!hasUserProfile">{{ $t('profile') }}</span>
+                        <i class="fa fa-user fa-lg menu-icon"></i><span v-if="hasUserProfile">{{ userProfile.name
+                            }}</span><span v-if="!hasUserProfile">{{ $t('profile') }}</span>
                         <span class="arrow ms-auto"></span>
                     </li>
                     <ul class="sub-menu collapse" id="profile-list" ref="profile-collapsible">
@@ -277,7 +314,8 @@ export default {
                         </li>
                         <li v-if="hasLogout" class="d-flex align-items-center fix-router-link">
                             <a v-bind:href="'#'" @click="logout($event)">
-                                <i class="fa fa-solid fa-arrow-right-from-bracket fa-lg menu-icon"></i>{{ $t('logout') }}
+                                <i class="fa fa-solid fa-arrow-right-from-bracket fa-lg menu-icon"></i>{{ $t('logout')
+                                }}
                             </a><span class="ms-auto"></span>
                         </li>
                     </ul>
@@ -287,13 +325,13 @@ export default {
                         </a><span class="ms-auto"></span>
                     </li>
                     <div v-if="hasJobs" class="collapse show" id="jobs-list">
-                        <JobsList />
+                        <JobsSideList />
                     </div>
                 </ul>
             </div>
             <div class="bottom-side-bar">
                 <div class="bottom-side-bar-button">
-                    <LanguagePicker/>
+                    <LanguagePicker />
                 </div>
             </div>
         </div>
@@ -330,7 +368,7 @@ export default {
     height: 48px;
 }
 
-.powered-by-orthanc > img {
+.powered-by-orthanc>img {
     filter: brightness(50);
     max-width: 50%;
     height: auto;
@@ -359,16 +397,17 @@ export default {
 .bottom-side-bar {
     flex: 1;
     align-self: flex-end;
-    width: 100%;    
+    width: 100%;
     position: relative;
     min-height: 5rem;
 }
 
-.bottom-side-bar-button { /* for the language picker */
+.bottom-side-bar-button {
+    /* for the language picker */
     position: absolute;
     bottom: 1rem;
     width: 100%;
-    height: 3rem;    
+    height: 3rem;
 }
 
 .nav-side-menu ul,
@@ -488,5 +527,4 @@ export default {
     margin-right: 5px;
     line-height: 28px;
 }
-
 </style>

@@ -25,10 +25,10 @@ export default {
     created() {
         this.messageBus.on('selected-all', this.onSelectedStudy);
         this.messageBus.on('unselected-all', this.onUnselectedStudy);
-        this.messageBus.on('added-series-to-study-' + this.studyId, () => {this.reloadStudy(this.studyId)});
-        this.messageBus.on('deleted-series-from-study-' + this.studyId, () => {this.reloadStudy(this.studyId)});
-        this.messageBus.on('study-updated-' + this.studyId, () => {this.reloadStudy(this.studyId)});
-        this.messageBus.on('study-labels-updated-in-labels-editor-' + this.studyId, () => {this.reloadStudy(this.studyId)});
+        this.messageBus.on('added-series-to-study-' + this.studyId, () => { this.reloadStudy(this.studyId) });
+        this.messageBus.on('deleted-series-from-study-' + this.studyId, () => { this.reloadStudy(this.studyId) });
+        this.messageBus.on('study-updated-' + this.studyId, () => { this.reloadStudy(this.studyId) });
+        this.messageBus.on('study-labels-updated-in-labels-editor-' + this.studyId, () => { this.reloadStudy(this.studyId) });
     },
     async mounted() {
         this.study = this.studies.filter(s => s["ID"] == this.studyId)[0];
@@ -164,23 +164,39 @@ export default {
                 return seriesCount;
             }
         },
+        hasPdfReportIconColumn() {
+            return this.studiesSourceType == SourceType.LOCAL_ORTHANC && this.uiOptions.EnableReportQuickButton;
+        },
         hasPdfReportIconPlaceholder() {
-            return this.studiesSourceType == SourceType.LOCAL_ORTHANC && this.uiOptions.EnableReportQuickButton && !this.hasPdfReportIcon;
+            return this.hasPdfReportIconColumn && !this.hasPdfReportIcon;
         },
         hasPdfReportIcon() {
-            return this.study.RequestedTags.SOPClassesInStudy && this.study.RequestedTags.SOPClassesInStudy.indexOf("1.2.840.10008.5.1.4.1.1.104.1") != -1 && this.uiOptions.EnableReportQuickButton;
+            return this.studiesSourceType == SourceType.LOCAL_ORTHANC && this.study.RequestedTags.SOPClassesInStudy && this.study.RequestedTags.SOPClassesInStudy.indexOf("1.2.840.10008.5.1.4.1.1.104.1") != -1 && this.uiOptions.EnableReportQuickButton;
+        },
+        hasPrimaryViewerColumn() {
+            return this.studiesSourceType == SourceType.LOCAL_ORTHANC && this.uiOptions.EnableViewerQuickButton;
         },
         hasPrimaryViewerIconPlaceholder() {
-            return this.studiesSourceType == SourceType.LOCAL_ORTHANC && this.uiOptions.EnableViewerQuickButton && !this.hasPrimaryViewerIcon;
+            return this.hasPrimaryViewerColumn && !this.hasPrimaryViewerIcon;
         },
         hasPrimaryViewerIcon() {
-            return this.studiesSourceType == SourceType.LOCAL_ORTHANC && this.primaryViewerUrl && this.uiOptions.EnableViewerQuickButton;
+            return this.hasPrimaryViewerColumn && this.primaryViewerUrl;
         },
         primaryViewerUrl() {
             return resourceHelpers.getPrimaryViewerUrl("study", this.study.ID, this.study.MainDicomTags.StudyInstanceUID);
         },
         primaryViewerTokenType() {
             return resourceHelpers.getPrimaryViewerTokenType();
+        },
+        colSpanStudyDetails() {
+            let span = this.uiOptions.StudyListColumns.length + 1; // +1 for the 'checkbox'
+            if (this.hasPrimaryViewerColumn) {
+                span++;
+            }
+            if (this.hasPdfReportIconColumn) {
+                span++;
+            }
+            return span;
         }
     },
     components: { SeriesList, StudyDetails, TokenLinkButton }
@@ -190,43 +206,43 @@ export default {
 
 <template>
     <tbody>
-        <tr v-if="loaded" :class="{ 'study-row-collapsed': !expanded, 'study-row-expanded': expanded, 'study-row-show-labels': showLabels }" @dblclick="doubleClicked">
+        <tr v-if="loaded"
+            :class="{ 'study-row-collapsed': !expanded, 'study-row-expanded': expanded, 'study-row-show-labels': showLabels }">
             <td>
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" v-model="selected" @click="clickedSelect">
                 </div>
             </td>
             <td v-if="hasPrimaryViewerIcon" class="td-viewer-icon">
-                <TokenLinkButton v-if="primaryViewerUrl"
-                    level="study" :linkUrl="primaryViewerUrl"
-                    :resourcesOrthancId="[study.ID]" linkType="icon"
-                    iconClass="bi bi-eye-fill"
+                <TokenLinkButton v-if="primaryViewerUrl" level="study" :linkUrl="primaryViewerUrl"
+                    :resourcesOrthancId="[study.ID]" linkType="icon" iconClass="bi bi-eye-fill"
                     :tokenType="primaryViewerTokenType" :opensInNewTab="true">
                 </TokenLinkButton>
             </td>
             <td v-if="hasPrimaryViewerIconPlaceholder"></td>
             <td v-if="hasPdfReportIcon" class="td-pdf-icon">
-                <TokenLinkButton v-for="pdfReport in pdfReports" :key="pdfReport.id"
-                    level="study" :linkUrl="pdfReport.url"
-                    :resourcesOrthancId="[study.ID]" linkType="icon"
-                    iconClass="bi bi-file-earmark-text"
-                    :tokenType="'download-instant-link'" :opensInNewTab="true"
+                <TokenLinkButton v-for="pdfReport in pdfReports" :key="pdfReport.id" level="study"
+                    :linkUrl="pdfReport.url" :resourcesOrthancId="[study.ID]" linkType="icon"
+                    iconClass="bi bi-file-earmark-text" :tokenType="'download-instant-link'" :opensInNewTab="true"
                     :title="pdfReport.title">
                 </TokenLinkButton>
             </td>
             <td v-if="hasPdfReportIconPlaceholder"></td>
 
             <td v-for="columnTag in uiOptions.StudyListColumns" :key="columnTag" class="cut-text"
-                :class="{ 'text-center': columnTag in ['modalities', 'seriesCount', 'instancesCount', 'seriesAndInstancesCount'] }" data-bs-toggle="collapse"
-                v-bind:data-bs-target="'#study-details-' + this.studyId">
-                <span v-if="columnTag == 'StudyDate'" data-bs-toggle="tooltip"
-                    v-bind:title="formattedStudyDate">{{ formattedStudyDate }}
+                :class="{ 'text-center': columnTag in ['modalities', 'seriesCount', 'instancesCount', 'seriesAndInstancesCount'] }"
+                data-bs-toggle="collapse" v-bind:data-bs-target="'#study-details-' + this.studyId">
+                <span v-if="columnTag == 'StudyDate'" data-bs-toggle="tooltip" v-bind:title="formattedStudyDate">{{
+                    formattedStudyDate }}
                 </span>
                 <span v-else-if="columnTag == 'AccessionNumber'" data-bs-toggle="tooltip"
                     v-bind:title="study.MainDicomTags.AccessionNumber">{{ study.MainDicomTags.AccessionNumber }}
                 </span>
                 <span v-else-if="columnTag == 'PatientID'" data-bs-toggle="tooltip"
                     v-bind:title="study.PatientMainDicomTags.PatientID">{{ study.PatientMainDicomTags.PatientID }}
+                </span>
+                <span v-else-if="columnTag == 'PatientSex'" data-bs-toggle="tooltip"
+                    v-bind:title="study.PatientMainDicomTags.PatientSex">{{ study.PatientMainDicomTags.PatientSex }}
                 </span>
                 <span v-else-if="columnTag == 'PatientName'" data-bs-toggle="tooltip"
                     v-bind:title="formattedPatientName">{{ formattedPatientName }}
@@ -241,14 +257,14 @@ export default {
                     v-bind:title="modalitiesInStudyForDisplay">{{
                         modalitiesInStudyForDisplay }}
                 </span>
-                <span v-else-if="columnTag == 'seriesCount'" data-bs-toggle="tooltip"
-                v-bind:title="seriesCount">{{ seriesCount }}
+                <span v-else-if="columnTag == 'seriesCount'" data-bs-toggle="tooltip" v-bind:title="seriesCount">{{
+                    seriesCount }}
                 </span>
                 <span v-else-if="columnTag == 'instancesCount'" data-bs-toggle="tooltip"
-                v-bind:title="instancesCount">{{ instancesCount }}
+                    v-bind:title="instancesCount">{{ instancesCount }}
                 </span>
                 <span v-else-if="columnTag == 'seriesAndInstancesCount'" data-bs-toggle="tooltip"
-                v-bind:title="seriesAndInstancesCount">{{ seriesAndInstancesCount }}
+                    v-bind:title="seriesAndInstancesCount">{{ seriesAndInstancesCount }}
                 </span>
                 <span v-else>{{ study.MainDicomTags[columnTag] }}
                 </span>
@@ -256,17 +272,19 @@ export default {
         </tr>
         <tr v-show="showLabels">
             <td></td>
-            <td colspan="100%" class="label-row">
+            <td v-if="hasPrimaryViewerColumn"></td>
+            <td v-if="hasPdfReportIconColumn"></td>
+            <td :colspan="uiOptions.StudyListColumns.length" class="label-row">
                 <span v-for="label in study.Labels" :key="label" class="label badge">{{ label }}</span>
                 <span v-if="!hasLabels">&nbsp;</span>
             </td>
         </tr>
-        <tr v-show="loaded" class="collapse"
-            :class="{ 'study-details-collapsed': !expanded, 'study-details-expanded': expanded }"
+        <tr v-show="loaded" class="collapse" :class="{ 'study-details-expanded': expanded }"
             v-bind:id="'study-details-' + this.studyId" ref="study-collapsible-details">
-            <td v-if="loaded && expanded" colspan="100">
+            <td v-if="loaded && expanded" :colspan="colSpanStudyDetails">
                 <StudyDetails :studyId="this.studyId" :studyMainDicomTags="this.study.MainDicomTags"
-                    :patientMainDicomTags="this.study.PatientMainDicomTags" :labels="this.study.Labels" @deletedStudy="onDeletedStudy"></StudyDetails>
+                    :patientMainDicomTags="this.study.PatientMainDicomTags" :labels="this.study.Labels"
+                    @deletedStudy="onDeletedStudy"></StudyDetails>
             </td>
         </tr>
     </tbody>
@@ -326,10 +344,12 @@ export default {
 }
 
 .td-viewer-icon {
-    padding: 0; /* to maximize click space for the icon */
+    padding: 0;
+    /* to maximize click space for the icon */
 }
 
 .td-pdf-icon {
-    padding: 0; /* to maximize click space for the icon */
+    padding: 0;
+    /* to maximize click space for the icon */
 }
 </style>

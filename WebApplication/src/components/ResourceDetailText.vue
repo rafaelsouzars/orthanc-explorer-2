@@ -24,7 +24,7 @@ export default {
             uiOptions: state => state.configuration.uiOptions,
         }),
         title() {
-            return translateDicomTag(this.$i18n.t, this.$i18n.te, this.tag);
+            return translateDicomTag(this.tag);
         },
         value() {
             if (this.hasValue) {
@@ -63,7 +63,7 @@ export default {
 <style>
 .details-label {
     font-weight: 700;
-    max-width: 30%;
+    max-width: 50%;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -71,7 +71,7 @@ export default {
 .details {
     margin-left: auto !important;
     font-weight: 500;
-    max-width: 25vw;
+    max-width: 75%;
     overflow: hidden;
     text-overflow: ellipsis;
 }
