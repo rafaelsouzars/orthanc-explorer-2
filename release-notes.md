@@ -1,6 +1,34 @@
 Pending changes
 ===============
 
+Changes:
+- Added Hungarian translations
+
+
+1.13.0 (2026-06-22)
+==================
+
+Changes:
+- Added a `Settings->Metrics` page.
+- We have changed the router which means that the '#/' in the url has now disappeared.
+  Therefore, the URI to open OE2 directly on a specific patient is now:
+  `http://localhost:8042/ui/app/filtered-studies?PatientID=134&order-by=DicomTag,StudyDate,ASC` instead of 
+  `http://localhost:8042/ui/app/#/filtered-studies?PatientID=134&order-by=DicomTag,StudyDate,ASC`.
+  However, old URIs shall still be valid.
+
+Fixes:
+- Study list is broken when `UiOptions.StudyListColumns` does not contain any of `Modalities`, `seriesAndInstancesCount`
+  and when `EnableReportQuickButton` is set to false ([report](https://discourse.orthanc-server.org/t/26-6-0-cannot-click-on-any-study/6451))
+- Fix the redirection after changing your password in Keycloak.
+
+Internals:
+- Updated dependencies.
+- For developers: node.js 20.19+ or 22.12+ is now required to build the project.
+
+
+1.12.1 (2026-06-01)
+==================
+
 Fixes:
 - Added support for files without `MediaStorageSOPClassUID` ([issue](https://github.com/orthanc-server/orthanc-builder/issues/35))
 - Fix #108 [Reflected XSS via remote-source URL Parameter](https://github.com/orthanc-server/orthanc-explorer-2/issues/108)
